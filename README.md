@@ -1,2 +1,2 @@
-# First-projects
+# My-projects
 First projects created with EPFL course
