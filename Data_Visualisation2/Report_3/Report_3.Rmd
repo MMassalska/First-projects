@@ -1,0 +1,531 @@
+---
+title: "Report_3"
+output: html_document
+---
+
+### Opening necessary in the project libraries
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+library(janitor)
+library(lubridate)
+library(tidyverse)
+library(ggplot2)
+library(slider)
+library(patchwork)
+library(readxl)
+library(sf)
+library(tmap)
+library(RColorBrewer)
+library(rcartocolor)
+library(osmdata)
+library(gifski)
+
+```
+
+# Part 1
+
++ Showing how many dollars are spent by country on different diseases.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+## Importing Data Stored outside of Project
+
+spending <-
+  read_csv(
+    "/Users/magda/Documents/EPFL/IHME_DAH_DATABASE_1990_2019_Y2020M04D23.CSV",
+    na = c('NA', '-', '')
+  )
+
+spending_2019 <- spending %>%
+  filter(year == 2019) %>%
+  mutate(source = str_replace(source, "_", " ")) %>%
+  dplyr::select(source, channel, recipient_country,
+                contains(c("hiv", "mal", "tb", "ncd")))
+
+## Importing map
+
+world_border <-
+  sf::st_read('Resources/ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp') %>%
+  clean_names()
+
+## Expenditure per country
+
+spending_short <- spending_2019 %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(source) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_short  <-  world_border  %>%
+  left_join(spending_short, c("name_long" = "source")) %>%
+  st_transform(crs = 'ESRI:54011')
+
+## Creating a map
+
+tm_shape(world_short) +
+  tm_polygons(col = "expenditure",
+              style = "quantile",
+              palette = "-plasma") +
+  tm_polygons(col = "#2887a1")
+
+```
+
+All presented in this report information comes from the IHME Development Assistance for Health Database which includes data on funds received and donated from/for specific countries over the years. On the above map we can see how many dollars were spent by different countries to deal with diseases in 2019. Some of the countries like US, Canada, Germany or Japan seems to participated with higher funding, but it seems also like many countries didn't donate money for this reason at all.
+
+# Question 2
+
++ Showing how many dollars are received by countries. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+## Importing data for 2015
+
+spending_2015 <- spending %>%
+  filter(year == 2015) %>%
+  mutate(source=str_replace(source,"_", " ")) %>%
+   dplyr:: select(
+    year, source, channel, recipient_country,
+    contains(c("hiv", "mal", "tb", "ncd")))
+
+## Receivings per country
+
+received_money <- spending_2015 %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received  <-  world_border  %>% 
+  left_join(received_money, c("name_long" = "recipient_country")) %>%
+  st_transform(crs = 'ESRI:54011')
+
+## Creating a map  
+
+map_received <- tm_shape(world_received) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1")
+
+map_received
+
+```
+
+On the other hand when we look on the next map we can see that many coutries received money to deal with different diseases. Especially we can highlight here Africa, South Americe and south part of Asia.
+
+# Question 3 
+
++ Showing how many dollars are received by regions.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+## Adding gbd_regions to map
+
+gbd_regions <- spending %>%
+  mutate(source = str_replace(source, "_", " ")) %>%
+  dplyr::select(recipient_country, gbd_region) %>%
+  distinct()
+
+world_gbd <-  world_border  %>%
+  left_join(gbd_regions, c("name_long" = "recipient_country"))
+
+## Preparing data
+
+gbd_regions_data <- spending %>%
+  filter(year == 2015) %>%
+  mutate(source = str_replace(source, "_", " ")) %>%
+  dplyr::select(recipient_country, gbd_region, gbd_region_id,
+                contains(c("hiv", "mal", "tb", "ncd")))
+
+received_gbd <- gbd_regions_data %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(gbd_region) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_gbd <-  world_gbd  %>%
+  left_join(received_gbd, c("gbd_region" = "gbd_region")) %>%
+  st_transform(crs = 'ESRI:54011')
+
+world_gbd <- world_gbd %>%
+  group_by(gbd_region) %>%
+  summarise(sum_exp = sum(expenditure))
+
+## Creating map
+
+tm_shape(world_gbd) +
+  tm_polygons(col = "sum_exp",
+              style = "quantile",
+              palette = "-viridis") +
+  tm_polygons(col = "#2887a1")
+
+```
+
+Very similar to the previous map, but this time we can see how much money different regions received. When we combined data it became even more visible that majority of the funds went to Africa.
+
+# Question 4 (optional)
+
++ Creating an animated time series map.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, animation.hook="gifski"}
+
+spending_last10 <- spending %>%
+  mutate(source=str_replace(source,"_", " ")) %>%
+  filter(year > 2009) %>%
+     dplyr:: select(
+    year, source, channel, recipient_country,
+    contains(c("hiv", "mal", "tb", "ncd")))
+
+# 2010
+
+## Preparing data
+
+received_money_2010 <- spending_last10 %>%
+  filter(year == 2010) %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received_2010  <-  world_border  %>% 
+  left_join(received_money_2010, c("name_long" = "recipient_country")) 
+
+## Creating a map  
+
+map_2010 <- tm_shape(world_received_2010) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1")+
+  tm_layout(title = 2010)
+
+# 2011
+
+## Preparing data
+
+received_money_2011 <- spending_last10 %>%
+  filter(year == 2011) %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received_2011  <-  world_border  %>% 
+  left_join(received_money_2011, c("name_long" = "recipient_country")) 
+
+## Creating a map  
+
+map_2011 <- tm_shape(world_received_2011) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1")+
+  tm_layout(title = 2011)
+
+# 2012
+
+## Preparing data
+
+received_money_2012 <- spending_last10 %>%
+  filter(year == 2012) %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received_2012  <-  world_border  %>% 
+  left_join(received_money_2012, c("name_long" = "recipient_country")) 
+
+
+## Creating a map  
+
+map_2012 <- tm_shape(world_received_2012) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1") +
+  tm_layout(title = 2012)
+
+# 2013
+
+## Preparing data
+
+received_money_2013 <- spending_last10 %>%
+  filter(year == 2013) %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received_2013  <-  world_border  %>% 
+  left_join(received_money_2013, c("name_long" = "recipient_country")) 
+
+## Creating a map  
+
+map_2013 <- tm_shape(world_received_2013) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1")+
+  tm_layout(title = 2013)
+
+
+# 2014
+
+## Preparing data
+
+received_money_2014 <- spending_last10 %>%
+  filter(year == 2014) %>%
+  pivot_longer(cols = contains(c("hiv", "mal", "tb", "ncd"))) %>%
+  mutate(disease = str_extract(name, "[^_]+")) %>%
+  group_by(recipient_country) %>%
+  summarise(expenditure = sum(value, na.rm = TRUE)) %>%
+  ungroup()
+
+## Combining data
+
+world_received_2014  <-  world_border  %>% 
+  left_join(received_money_2014, c("name_long" = "recipient_country")) 
+
+## Creating a map  
+
+map_2014 <- tm_shape(world_received_2014) +
+tm_polygons(col = "expenditure", 
+              style = "quantile",
+            palette = "-viridis") +
+  tm_polygons(col = "#2887a1") +
+  tm_layout(title = 2014)
+
+map_2010
+map_2011
+map_2012
+map_2013
+map_2014
+```
+
+On the above animation we can see how much money countries received between year 2010 and 2014. Over the years, one of the biggest drop in donations we can notice for China and Mongolia.
+
+# Question 5
+
++ Creating an interactive map
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+tmap_mode("view")
+map_received 
+
+tmap_save(map_received, "map_received.html")
+
+```
+
+Above interactive map enables to check accurate values of donation received per country.
+
+# Question 6
+
++ Focusing the map on one continent only.
++ Creating a visualisation with an inset map.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+## Importing map for Africa
+
+africa_border <-
+  sf::st_read('Resources/ne_50m_admin_0_countries/ne_50m_admin_0_countries.shp') %>%
+  clean_names() %>%
+  filter(continent == "Africa")
+
+africa_received_2015  <-  africa_border  %>%
+  left_join(received_money, c("name_long" = "recipient_country"))
+
+## Creating the main map
+
+tmap_mode("plot")
+
+africa_received_2015 <- africa_received_2015 %>%
+  mutate(
+    categories = case_when(
+      expenditure < 10000 ~ "< 10 k",
+      expenditure >= 10000 & expenditure < 100000 ~ "10k to 100k",
+      expenditure >= 100000 &
+        expenditure < 500000 ~ "100k to 0.5 mln",
+      expenditure >= 500000 &
+        expenditure < 1000000 ~ "0.5 mln to 1 mln",
+      expenditure >= 1000000 ~ "> 1mln"
+    )
+  ) %>%
+  mutate(categories = factor(
+    categories,
+    levels = c("< 10 k",
+               "10k to 100k",
+               "100k to 0.5 mln",
+               "0.5 mln to 1 mln",
+               "> 1mln")
+  ))
+
+africa_map <- ggplot() +
+  geom_sf(
+    data = africa_border,
+    fill = "transparent",
+    color = "grey",
+    size = 0.5
+  ) +
+  geom_sf(
+    data = africa_received_2015,
+    aes(fill = categories),
+    alpha = 1,
+    color = "lightgrey",
+    size = 0.1
+  ) +
+  theme_void() +
+  scale_fill_carto_d(palette = "BurgYl") +
+  guides(
+    fill = guide_legend(
+      title =  "Received funds",
+      label.position = "bottom",
+      title.position = "top",
+      nrow = 1
+    )
+  ) +
+  theme(legend.position = "bottom") +
+    labs( title = "Funds received for dealing with diseases")
+
+
+## Creating the inset map
+
+africa_rectangle <- world_border %>%
+  filter(continent %in% "Africa") %>%
+  st_bbox() %>%
+  st_as_sfc()
+
+africa_inset_map <- ggplot() +
+  geom_sf(
+    data = world_border,
+    fill = "white",
+    size = 0.3,
+    colour = "lightgrey"
+  ) +
+  geom_sf(
+    data = africa_rectangle,
+    fill = NA,
+    color = "red",
+    size = 0.8
+  ) +
+  theme_void()
+
+## Adding maps together
+
+layout <- c(patchwork::area(
+  t = 0,
+  l = 1,
+  b = 7,
+  r = 9
+),
+patchwork::area(
+  t = 5,
+  l = 2,
+  b = 6,
+  r = 5
+))
+
+africa_map + africa_inset_map + plot_layout(design = layout)
+
+```
+
+Above visualization presents how many dollars countries in Africa received. Looking at the smaller area enables us see more precisily how much each country got and how it differs.
+
+# Question 8
+
++ Plotting selected city map with 5 features.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+## Preparing features
+
+road <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "highway",
+                  value = c("motorway", "primary",
+                            "secondary", "tertiary")) %>%
+  osmdata_sf()
+
+river <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "waterway", value = "river") %>%
+  osmdata_sf()
+
+club <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "amenity", value = "nightclub") %>%
+  osmdata_sf()
+
+lake <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "natural", value = "water") %>%
+  osmdata_sf()
+
+bar <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "amenity", value = "bar") %>%
+  osmdata_sf()
+
+restaurant <- opq(c(8.482299, 47.332298, 8.601518, 47.399211)) %>%
+  add_osm_feature(key = "amenity", value = "restaurant") %>%
+  osmdata_sf()
+
+## Creating map of Zurich
+
+ggplot() +
+  geom_sf(data = river$osm_lines,
+          inherit.aes = FALSE,
+          color = "blue") +
+  geom_sf(data = lake$osm_lines,
+          inherit.aes = FALSE,
+          color = "steelblue") +
+  geom_sf(data = road$osm_lines,
+          inherit.aes = FALSE,
+          color = "#bdbdbd") +
+  geom_sf(data = restaurant$osm_points,
+          inherit.aes = FALSE,
+          aes(color = "#ffff33"),
+          show.legend = "point") +
+  geom_sf(data = bar$osm_points,
+          inherit.aes = FALSE,
+          aes(color = "#984ea3"),
+          show.legend = "point") +
+  geom_sf(data = club$osm_points,
+          inherit.aes = FALSE,
+         aes(color = "#31a354"),
+          show.legend = "point") +
+  coord_sf(
+    xlim = c(8.482299, 8.601518),
+    ylim = c(47.332298, 47.399211),
+    expand = FALSE
+  ) +
+  theme_void() +
+  scale_color_manual (values = c("#ffff33", "#984ea3","#31a354"), label=c("Restaurants","Bars","Clubs")) +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        legend.title = element_blank()) +
+  labs(title = "ZURICH",
+       subtitle = "Map of Restaurants, Bars and Clubs")
+  
+ 
+```
+
+This city map of Zurich presents where resturants, bars and clubs are located. Additionaly highlights rivers, roads and Zurich lake. We can notice that number of clubs outweight the map.
